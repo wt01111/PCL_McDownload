@@ -12,6 +12,8 @@
 2. 关闭 PCL，双击补丁运行一次。仅复制文件不会自动修改 PCL。
 3. 补丁会核对程序身份和下载代码结构、备份原文件并恢复下载功能。完成后，按原来的方式打开 PCL。
 
+目录里必须有名为 `Plain Craft Launcher 2.exe` 的启动器。如果只剩 `.bak` 文件，先复制原版备份，把复制件重命名为 `Plain Craft Launcher 2.exe`，然后再运行补丁。Windows 文件资源管理器中建议打开“显示文件扩展名”，避免误把文件命名为 `.exe.bak`。
+
 备份文件保存在 PCL 原目录，内容是打补丁前的原版程序。名称会写明 `original` 和版本号，例如 `Plain Craft Launcher 2.exe.original-2.99.0.0.bak`。每次需要重新打补丁时都会保留旧备份。如需还原，关闭 PCL，复制对应备份文件并重命名为 `Plain Craft Launcher 2.exe`，替换当前程序；保留 `.bak` 文件以便再次还原。
 
 本工具只读取和修改同目录下的 `Plain Craft Launcher 2.exe`。补丁可以离线运行，需要 Windows 和 .NET Framework 4.8（与当前 PCL 的运行要求一致）。已在 Windows 上测试公开仓库的 2.99.0.0 构建和正式发行构建。其他 Windows 电脑如果满足上述条件，且 PCL 下载代码结构相同，预计可以使用；尚未逐台测试，也未验证 Wine、Linux 或 macOS。后续版本若保留相同的下载代码结构，也可运行此补丁；若相关代码改变，补丁会拒绝修改，需要更新补丁规则。PCL 更新后可能覆盖修改，此时需再次运行补丁。
