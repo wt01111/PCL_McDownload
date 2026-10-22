@@ -1,16 +1,20 @@
 # PCL MC 下载功能恢复工具
 
-独立的 Windows 小工具，用于恢复 **PCL 2.99.0.0 正式版**中被关闭的 Minecraft 下载入口和整合包安装，并在处理后启动 PCL。由第三方制作，与 PCL 官方无关。
+独立的 Windows 补丁，用于恢复 PCL 中被关闭的 Minecraft 下载入口和整合包安装。由第三方制作，与 PCL 官方无关。
+
+原项目 Plain Craft Launcher 的作者是龙腾猫跃：[支持原作者](https://afdian.net/@LTCat)。本仓库保留了 [PCL 原项目的许可与使用指南](PCL-LICENCE.txt)。
+
+[下载 Windows 补丁](download/PCL-McDownload-Restore.exe)
 
 ## 使用
 
-1. 下载并运行 `PCL-McDownload-Restore.exe`。
-2. 工具会查找同目录的 PCL、正在运行的 PCL，以及桌面、开始菜单和任务栏快捷方式指向的 PCL。如果没有找到，选择 `Plain Craft Launcher 2.exe`。
-3. 工具核对程序的 SHA-256。只有与官方 2.99.0.0 正式版完全一致时才会修改；它会先关闭该 PCL，备份原文件，恢复下载功能，再启动 PCL。
+1. 将 `PCL-McDownload-Restore.exe` 放到 `Plain Craft Launcher 2.exe` 所在目录。
+2. 关闭 PCL，运行补丁一次。
+3. 补丁会核对程序身份和下载代码结构、备份原文件并恢复下载功能。完成后，按原来的方式打开 PCL。
 
-备份文件保存在 PCL 原目录，名称为 `Plain Craft Launcher 2.exe.pcl2-2.99-original.bak`。如需还原，关闭 PCL，把备份文件改回 `Plain Craft Launcher 2.exe`。
+备份文件保存在 PCL 原目录，名称包含原程序版本号，例如 `Plain Craft Launcher 2.exe.pcl-mcdownload-2.99.0.0.bak`。每次需要重新打补丁时都会保留旧备份。如需还原，关闭 PCL，把对应备份文件改回 `Plain Craft Launcher 2.exe`。
 
-本工具只修改所选的 PCL 可执行文件。其他版本、二次修改版或未来新版会被拒绝；需要针对新版重新审核和制作补丁。PCL 后续自动更新也可能覆盖修改。
+本工具只读取和修改同目录下的 `Plain Craft Launcher 2.exe`。已测试公开仓库的 2.99.0.0 构建和正式发行构建。后续版本若保留相同的下载代码结构，也可运行此补丁；若相关代码改变，补丁会拒绝修改，需要更新补丁规则。PCL 更新后可能覆盖修改，此时需再次运行补丁。
 
 ## 构建
 
@@ -22,4 +26,4 @@
 
 构建脚本从官方仓库下载 2.14.0.0 正式版作为恢复用的代码来源，从 NuGet 下载 Mono.Cecil；两份下载都经过 SHA-256 校验。构建产物位于 `dist/PCL-McDownload-Restore.exe`。仓库不保存 PCL 程序文件。
 
-源码仅适配当前经过核验的 2.99.0.0 正式版。用户应自行确认使用与分发方式符合 [PCL 的许可及使用指南](https://github.com/Meloong-Git/PCL/blob/main/LICENCE)。
+源码仅适配当前经过核验的下载代码结构。用户应自行确认使用与分发方式符合 [PCL 的许可及使用指南](PCL-LICENCE.txt)。

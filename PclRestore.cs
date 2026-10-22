@@ -4,17 +4,43 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Reflection;
-using System.Runtime.InteropServices;
 using System.Resources;
 using System.Security.Cryptography;
+using System.Text;
 using System.Windows.Forms;
 using Mono.Cecil;
 using Mono.Cecil.Cil;
 
 internal static class PclRestore
 {
-    private const string OriginalHash = "6B6E1260CB5A1D6A303855F1C60CAB3D0BC1AEBBA7E40A964180188B271E7386";
-    private const string PatchedHash = "7C101797426766A84EC8C9DE9FBB4B262D1AF2605671C9D0FA18C76F172C5171";
+    private enum TargetState { Unsupported, Original, Patched }
+    private sealed class MethodCheck
+    {
+        public readonly string TypeName, MethodName, Original, Patched;
+        public readonly int ParameterCount;
+        public MethodCheck(string typeName, string methodName, int parameterCount, string original, string patched)
+        {
+            TypeName = typeName; MethodName = methodName; ParameterCount = parameterCount;
+            Original = original; Patched = patched;
+        }
+    }
+    private static readonly MethodCheck[] Checks = {
+        new MethodCheck("PCL.ModModpack", "ModpackInstall", 0,
+            "BA5BFBB572C37F358B6D275016D396B1BDECEF936D018E592D46B0F23EF4AF55",
+            "BD59E9DAEC7F5E529689E907B64D9852BBB80B57BA1A7500C671C0F0B854FEEC"),
+        new MethodCheck("PCL.ModModpack", "ModpackInstall", 3,
+            "681A25BC3222D42FB202BB67DB4B1F9E28E5BFD5D56469F0E5FFD0797394BAEF",
+            "7462027C47E4E7932099327461D96E2E73CD237890BCBF538EE4D0967C5D273C"),
+        new MethodCheck("PCL.PageDownloadInstall", "LoaderInit", 0,
+            "CD615129B5EF24B4292C7E6306A414F30BACBC70419C76AEA015684F54F36895",
+            "D46414774DBA8F98EF33C237D847210C6FE878A87F96D4F649E8A6ACE3504279"),
+        new MethodCheck("PCL.PageDownloadModify", "LoadInstanceFinished", 1,
+            "184A7EF06D5018065431C080F4C99397809ADD14F6939F48FD67353B46A9A607",
+            "B678C8D1A7A1A575D619304916A72FEBE2E547D561948308E010894095109A65"),
+        new MethodCheck("PCL.PageDownloadResourceDetail", "InitializeStackResourceVersions", 1,
+            "D775585031CB6C3C262F4C6428429AA4CDC3CA2540355DA90DC3C3DC8F2535C5",
+            "B2859D41C367969F26AB0AF02132E3E9FDB0B3FFE692030A863FB8D4AAB2E8F9")
+    };
     private static ModuleDefinition source;
     private static ModuleDefinition target;
     private static Dictionary<string, TypeDefinition> types;
@@ -42,34 +68,19 @@ internal static class PclRestore
 
     private static int Run(string[] args)
     {
-        string path = args.Length > 0 && !args[0].StartsWith("--") ? args[0] : FindTarget(
-#if TEST
-            args.Contains("--test-empty-search")
-#else
-            false
-#endif
-        );
-        if (path == null)
+        string path = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Plain Craft Launcher 2.exe");
+        if (!File.Exists(path))
+            throw new FileNotFoundException("当前目录没有 Plain Craft Launcher 2.exe。请把补丁放到 PCL 启动器所在目录再运行。");
+        var state = CheckTarget(path);
+        if (state == TargetState.Patched)
         {
-            using (var dialog = new OpenFileDialog())
-            {
-                dialog.Title = "选择 PCL 2.99.0.0 正式版程序";
-                dialog.Filter = "PCL 程序|Plain Craft Launcher 2.exe|可执行程序|*.exe";
-                if (dialog.ShowDialog() != DialogResult.OK) return 0;
-                path = dialog.FileName;
-            }
-        }
-        path = Path.GetFullPath(path);
-        var hash = Hash(path);
-        if (hash == PatchedHash)
-        {
-            if (!args.Contains("--no-restart")) StartLauncher(path);
-            Show("该 PCL 已恢复下载功能。" + (args.Contains("--no-restart") ? "" : "已启动 PCL。"), false, args);
+            Show("这个 PCL 已经恢复了下载功能。直接打开 PCL 即可。", false, args);
             return 0;
         }
-        if (hash != OriginalHash)
-            throw new InvalidOperationException("程序不是已核对的 PCL 2.99.0.0 正式版，未做任何修改。当前 SHA-256：" + hash);
-        CloseTargetProcess(path);
+        if (state != TargetState.Original)
+            throw new InvalidOperationException("此 PCL 的下载代码结构与补丁不兼容，未做任何修改。请针对这个版本更新补丁。");
+        EnsureTargetNotRunning(path);
+        string backup = CreateBackupPath(path);
 
         string dependencies = Path.Combine(Path.GetTempPath(), "PCLRestore-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(dependencies);
@@ -101,8 +112,6 @@ internal static class PclRestore
             donor = memory.ToArray();
         }
         string temp = path + ".pclrestore.tmp";
-        string backup = path + ".pcl2-2.99-original.bak";
-        if (File.Exists(backup)) throw new IOException("备份文件已存在：" + backup);
         try
         {
         using (var donorStream = new MemoryStream(donor))
@@ -122,136 +131,79 @@ internal static class PclRestore
 
             patchedAssembly.Write(temp);
         }
-        using (var check = AssemblyDefinition.ReadAssembly(temp))
-            if (check.Name.Version.ToString() != "2.99.0.0") throw new InvalidDataException("补丁验证失败");
+        if (CheckTarget(temp) != TargetState.Patched) throw new InvalidDataException("补丁验证失败");
         File.Replace(temp, path, backup);
         }
         finally { if (File.Exists(temp)) File.Delete(temp); }
         }
         }
         finally { Directory.Delete(dependencies, true); }
-        bool restart = !args.Contains("--no-restart");
-        if (restart)
-            StartLauncher(path);
-        Show("已恢复 PCL 2.99.0.0 的 MC 下载入口和整合包安装。" +
-            (restart ? "已启动 PCL。" : "") + "\n\n原程序备份：\n" +
-            path + ".pcl2-2.99-original.bak", false, args);
+        Show("已恢复 MC 下载入口和整合包安装。现在可以照常打开 PCL。\n\n原程序备份：\n" +
+            backup, false, args);
         return 0;
     }
 
-    private static string FindTarget(bool testEmptySearch)
+    private static string CreateBackupPath(string path)
     {
-        var candidates = new List<string>();
-        candidates.Add(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Plain Craft Launcher 2.exe"));
-        if (testEmptySearch) return null;
-        foreach (var process in Process.GetProcesses())
+        var version = AssemblyName.GetAssemblyName(path).Version.ToString();
+        var prefix = path + ".pcl-mcdownload-" + version;
+        for (int number = 1; number <= 100; number++)
         {
-            try
-            {
-                if (process.ProcessName.IndexOf("PCL", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                    process.ProcessName.IndexOf("Plain Craft", StringComparison.OrdinalIgnoreCase) >= 0)
-                    candidates.Add(process.MainModule.FileName);
-            }
-            catch { }
-            finally { process.Dispose(); }
+            var candidate = prefix + (number == 1 ? "" : "-" + number) + ".bak";
+            if (!File.Exists(candidate)) return candidate;
         }
-        string[] roots = {
-            Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory),
-            Environment.GetFolderPath(Environment.SpecialFolder.CommonDesktopDirectory),
-            Environment.GetFolderPath(Environment.SpecialFolder.StartMenu),
-            Environment.GetFolderPath(Environment.SpecialFolder.CommonStartMenu),
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                "Microsoft", "Internet Explorer", "Quick Launch", "User Pinned", "TaskBar")
-        };
-        foreach (var root in roots.Distinct(StringComparer.OrdinalIgnoreCase))
-            ScanFolder(root, 2, candidates);
-        foreach (var candidate in candidates.Distinct(StringComparer.OrdinalIgnoreCase))
-        {
-            try
-            {
-                if (!File.Exists(candidate)) continue;
-                string hash = Hash(candidate);
-                if (hash == OriginalHash || hash == PatchedHash) return candidate;
-            }
-            catch { }
-        }
-        return null;
+        throw new IOException("备份文件过多，请先整理当前目录中的 PCL 备份。");
     }
 
-    private static void StartLauncher(string path)
-    {
-        try
-        {
-            Process.Start(new ProcessStartInfo(path) { UseShellExecute = true, WorkingDirectory = Path.GetDirectoryName(path) });
-        }
-        catch (Exception e)
-        {
-            throw new IOException("程序已修改，但启动失败。请手动打开：" + path + "。原因：" + e.Message, e);
-        }
-    }
-
-    private static void ScanFolder(string folder, int depth, List<string> candidates)
-    {
-        if (!Directory.Exists(folder)) return;
-        try
-        {
-            foreach (var file in Directory.EnumerateFiles(folder))
-            {
-                if (file.EndsWith(".lnk", StringComparison.OrdinalIgnoreCase))
-                {
-                    var linked = ReadShortcut(file);
-                    if (linked != null) candidates.Add(linked);
-                }
-                else if (Path.GetFileName(file).Equals("Plain Craft Launcher 2.exe", StringComparison.OrdinalIgnoreCase))
-                    candidates.Add(file);
-            }
-            if (depth > 0)
-                foreach (var child in Directory.EnumerateDirectories(folder)) ScanFolder(child, depth - 1, candidates);
-        }
-        catch (UnauthorizedAccessException) { }
-        catch (IOException) { }
-    }
-
-    private static string ReadShortcut(string path)
-    {
-        object shell = null, shortcut = null;
-        try
-        {
-            var shellType = Type.GetTypeFromProgID("WScript.Shell");
-            if (shellType == null) return null;
-            shell = Activator.CreateInstance(shellType);
-            shortcut = shellType.InvokeMember("CreateShortcut", BindingFlags.InvokeMethod, null, shell, new object[] { path });
-            return shortcut.GetType().InvokeMember("TargetPath", BindingFlags.GetProperty, null, shortcut, null) as string;
-        }
-        catch { return null; }
-        finally
-        {
-            if (shortcut != null && Marshal.IsComObject(shortcut)) Marshal.ReleaseComObject(shortcut);
-            if (shell != null && Marshal.IsComObject(shell)) Marshal.ReleaseComObject(shell);
-        }
-    }
-
-    private static void CloseTargetProcess(string path)
+    private static void EnsureTargetNotRunning(string path)
     {
         foreach (var process in Process.GetProcesses())
         {
             try
             {
-                if (!string.Equals(process.MainModule.FileName, path, StringComparison.OrdinalIgnoreCase)) continue;
-                if (!process.CloseMainWindow() || !process.WaitForExit(10000))
-                    throw new IOException("请先关闭此 PCL 窗口，然后重试：" + path);
+                if (string.Equals(process.MainModule.FileName, path, StringComparison.OrdinalIgnoreCase))
+                    throw new IOException("请先关闭当前目录中的 PCL，再运行补丁。");
             }
             catch (System.ComponentModel.Win32Exception) { }
             catch (InvalidOperationException) { }
             finally { process.Dispose(); }
         }
     }
-
-    private static string Hash(string path)
+    private static TargetState CheckTarget(string path)
     {
+        using (var assembly = AssemblyDefinition.ReadAssembly(path))
+        {
+            if (assembly.Name.Name != "Plain Craft Launcher 2" ||
+                assembly.Name.Version.CompareTo(new Version(2, 99, 0, 0)) < 0) return TargetState.Unsupported;
+            var typeMap = assembly.MainModule.GetTypes().ToDictionary(t => t.FullName);
+            bool original = true, patched = true;
+            foreach (var check in Checks)
+            {
+                TypeDefinition owner;
+                if (!typeMap.TryGetValue(check.TypeName, out owner)) return TargetState.Unsupported;
+                var method = owner.Methods.SingleOrDefault(m => m.Name == check.MethodName &&
+                    m.Parameters.Count == check.ParameterCount);
+                if (method == null || !method.HasBody) return TargetState.Unsupported;
+                string fingerprint = Fingerprint(method);
+                original &= fingerprint == check.Original;
+                patched &= fingerprint == check.Patched;
+            }
+            if (original) return TargetState.Original;
+            if (patched) return TargetState.Patched;
+            return TargetState.Unsupported;
+        }
+    }
+
+    private static string Fingerprint(MethodDefinition method)
+    {
+        var value = string.Join("\n", method.Body.Instructions.Select(i => i.ToString())) + "\nEH\n" +
+            string.Join("\n", method.Body.ExceptionHandlers.Select(h => h.HandlerType + ":" +
+                (h.TryStart == null ? -1 : h.TryStart.Offset) + ":" +
+                (h.TryEnd == null ? -1 : h.TryEnd.Offset) + ":" +
+                (h.HandlerStart == null ? -1 : h.HandlerStart.Offset) + ":" +
+                (h.HandlerEnd == null ? -1 : h.HandlerEnd.Offset)));
         using (var sha = SHA256.Create())
-        using (var input = File.OpenRead(path))
-            return BitConverter.ToString(sha.ComputeHash(input)).Replace("-", "");
+            return BitConverter.ToString(sha.ComputeHash(Encoding.UTF8.GetBytes(value))).Replace("-", "");
     }
 
     private static void Show(string message, bool error, string[] args)
