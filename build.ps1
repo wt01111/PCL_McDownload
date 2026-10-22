@@ -53,7 +53,8 @@ try {
         '/nologo', '/target:winexe', '/optimize+',
         "/out:$outputFile", "/reference:$cecil",
         '/reference:System.Windows.Forms.dll', '/reference:System.Core.dll',
-        "/resource:$cecil,Mono.Cecil.dll", "/resource:$donor,PCL2-2.14-original.exe",
+        '/reference:System.IO.Compression.dll',
+        "/resource:$cecil,Mono.Cecil.dll", "/resource:$donorArchive,PCL2-2.14.zip",
         (Join-Path $PSScriptRoot 'PclRestore.cs')
     )
     & $compiler @compilerArguments

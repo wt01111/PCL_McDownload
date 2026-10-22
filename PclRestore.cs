@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.IO.Compression;
 using System.Linq;
 using System.Reflection;
 using System.Resources;
@@ -105,10 +106,12 @@ internal static class PclRestore
         using (resolver)
         {
         byte[] donor;
-        using (var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream("PCL2-2.14-original.exe"))
+        using (var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream("PCL2-2.14.zip"))
+        using (var archive = new ZipArchive(stream, ZipArchiveMode.Read))
+        using (var entryStream = archive.GetEntry("Plain Craft Launcher 2.exe").Open())
         using (var memory = new MemoryStream())
         {
-            stream.CopyTo(memory);
+            entryStream.CopyTo(memory);
             donor = memory.ToArray();
         }
         string temp = path + ".pclrestore.tmp";
