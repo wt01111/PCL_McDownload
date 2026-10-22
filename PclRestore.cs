@@ -149,7 +149,7 @@ internal static class PclRestore
     private static string CreateBackupPath(string path)
     {
         var version = AssemblyName.GetAssemblyName(path).Version.ToString();
-        var prefix = path + ".pcl-mcdownload-" + version;
+        var prefix = path + ".original-" + version;
         for (int number = 1; number <= 100; number++)
         {
             var candidate = prefix + (number == 1 ? "" : "-" + number) + ".bak";
